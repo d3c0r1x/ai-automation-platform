@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import io
 import json
 import sys
 from typing import Any
@@ -66,38 +68,57 @@ async def run(
         settings=_settings(database),
     )
     await service.start()
+    # Инструменты печатают сами (например, доставка в консоль). Собираем этот
+    # вывод в буфер: в режиме `--json` на stdout обязан быть только JSON, а
+    # потерять «человеческий» вывод тоже нельзя — он едет в отчёт.
+    captured = io.StringIO()
     try:
-        task = await service.create(TaskRequest(goal=goal, source="form", auto_approve=auto_approve))
-        outcome = await service.process(task.id)
-
-        approved_rounds = 0
-        while outcome.status == TaskStatus.WAITING_APPROVAL and auto_approve:
-            approved_rounds += 1
-            await service.approve(task.id, outcome.waiting_step or "")
-            outcome = await service.process(task.id)
-
-        view = await service.view(task.id)
-        assert view is not None
-        report = {
-            "task_id": task.id,
-            "status": outcome.status.value,
-            "plan_source": view.task.plan.source.value if view.task.plan else None,
-            "plan": [step.model_dump() for step in (view.task.plan.steps if view.task.plan else [])],
-            "steps": [step.model_dump() for step in view.steps],
-            "summary": outcome.result.summary if outcome.result else "",
-            "table_markdown": outcome.result.table_markdown if outcome.result else "",
-            "rows": outcome.result.rows if outcome.result else [],
-            "artifacts": outcome.result.artifacts if outcome.result else {},
-            "skipped": [s.model_dump() for s in (outcome.result.skipped if outcome.result else [])],
-            "delivery": outcome.result.delivery if outcome.result else {},
-            "approvals": approved_rounds,
-            "events": [{"seq": e.seq, "kind": e.kind.value, "message": e.message} for e in view.events],
-        }
+        with contextlib.redirect_stdout(captured):
+            report = await _run_pipeline(service, goal, auto_approve)
+        report["console_output"] = captured.getvalue()
         if verbose:
+            print(report["console_output"], end="")
             _print_report(report)
         return report
     finally:
         await service.stop()
+
+
+async def _run_pipeline(service: TaskService, goal: str, auto_approve: bool) -> dict[str, Any]:
+    """Поставить задачу, выполнить её и собрать отчёт в словарь.
+
+    Задача всегда создаётся с `auto_approve=False`: так демо честно проходит
+    через подтверждение отправки — это часть продукта, и её видно. По умолчанию
+    демо подтверждает шаг за человека (иначе ждать было бы некому), а с
+    `--no-auto-approve` останавливается и показывает статус `waiting_approval`.
+    """
+    task = await service.create(TaskRequest(goal=goal, source="form", auto_approve=False))
+    outcome = await service.process(task.id)
+
+    approved_rounds = 0
+    while outcome.status == TaskStatus.WAITING_APPROVAL and auto_approve:
+        approved_rounds += 1
+        await service.approve(task.id, outcome.waiting_step or "")
+        outcome = await service.process(task.id)
+
+    view = await service.view(task.id)
+    assert view is not None, "задача должна существовать: её только что создали"
+    result = outcome.result
+    return {
+        "task_id": task.id,
+        "status": outcome.status.value,
+        "plan_source": view.task.plan.source.value if view.task.plan else None,
+        "plan": [step.model_dump() for step in (view.task.plan.steps if view.task.plan else [])],
+        "steps": [step.model_dump() for step in view.steps],
+        "summary": result.summary if result else "",
+        "table_markdown": result.table_markdown if result else "",
+        "rows": result.rows if result else [],
+        "artifacts": result.artifacts if result else {},
+        "skipped": [s.model_dump() for s in (result.skipped if result else [])],
+        "delivery": result.delivery if result else {},
+        "approvals": approved_rounds,
+        "events": [{"seq": e.seq, "kind": e.kind.value, "message": e.message} for e in view.events],
+    }
 
 
 def _print_report(report: dict[str, Any]) -> None:
