@@ -23,13 +23,13 @@ def _collect() -> tuple[list[TaskEvent], Any]:
 
 def _executor(registry: ToolRegistry, **kwargs: Any) -> tuple[Executor, list[TaskEvent]]:
     events, hook = _collect()
-    options = dict(
-        retries=1,
-        timeout=5,
-        backoff=0,
-        require_approval=True,
-        on_event=hook,
-    )
+    options = {
+        "retries": 1,
+        "timeout": 5,
+        "backoff": 0,
+        "require_approval": True,
+        "on_event": hook,
+    }
     options.update(kwargs)
     return Executor(registry, context(), **options), events
 

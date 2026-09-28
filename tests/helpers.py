@@ -35,16 +35,16 @@ def require(module: str) -> Any:
 
 
 def settings(**overrides: Any) -> Settings:
-    base = dict(
-        database_url="sqlite:///" + str(ROOT / "data" / "test.db"),
-        queue="memory",
-        llm_base_url="",
-        llm_api_key="",
-        require_approval=True,
-        step_retries=1,
-        step_timeout=5,
-        max_steps=12,
-    )
+    base = {
+        "database_url": "sqlite:///" + str(ROOT / "data" / "test.db"),
+        "queue": "memory",
+        "llm_base_url": "",
+        "llm_api_key": "",
+        "require_approval": True,
+        "step_retries": 1,
+        "step_timeout": 5,
+        "max_steps": 12,
+    }
     base.update(overrides)
     return Settings(**base)
 
