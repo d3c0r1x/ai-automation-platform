@@ -1,205 +1,100 @@
-# AI Automation Platform — задачи, которые агент доводит до результата
+# AI Automation Platform
+
+**Turn a natural-language task into a validated plan, execute the plan with tools, pause for human approval when needed, and return a structured result.**
 
 [![CI](https://github.com/d3c0r1x/ai-automation-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/d3c0r1x/ai-automation-platform/actions/workflows/ci.yml)
 
-**[🏗 Архитектура](docs/ARCHITECTURE.md)** ·
-**[🤖 Агент и инструменты](docs/AGENT.md)** ·
-**[⚙️ Разработка](docs/DEVELOPMENT.md)** ·
-**[🧠 Решения](docs/DECISIONS.md)**
+## Example
 
-> **EN:** A task-running platform where an LLM agent plans tool calls, executes
-> them (HTTP APIs, Playwright, computations), pauses for human approval before
-> anything leaves the machine, and returns a report — with every step, argument
-> and decision visible. FastAPI + PostgreSQL + Redis + background workers +
-> pydantic tool schemas + React dashboard + Docker + CI. Works end-to-end with
-> **no API keys at all**: the deterministic planner takes over and the report
-> says so.
+> Find 20 items under 5000 ₽, compare them, select the best 5 and prepare a table.
 
-## Problem
+Flow:
 
-Бизнес-задачи редко звучат как «вызови эндпоинт»: «найди 20 товаров категории
-X до 5000 ₽, сравни, выбери 5 лучших, составь таблицу и пришли мне». Это
-последовательность действий с внешними системами, проверкой данных и
-результатом, который человек прочитает.
+```
+request
+  ↓
+planner
+  ↓
+validated plan
+  ↓
+queue
+  ↓
+worker
+  ├─ API tools
+  ├─ browser tools
+  └─ deterministic calculations
+  ↓
+approval gate
+  ↓
+report
+```
 
-Чат-бот здесь не помогает: он отвечает текстом, а не выполняет работу. Скрипт —
-тоже: он не переживает падение внешнего API, не останавливается перед отправкой
-сообщения и не объясняет, что сделал. Нужна платформа, где **план виден,
-выполнение переживает сбой, а необратимый шаг подтверждает человек**.
+The repository includes a deterministic demo path, so it can be inspected and run without an LLM key.
 
-## What I built
+## What is implemented
 
-Платформа, которая принимает задачу обычными словами и доводит её до результата.
+- FastAPI API and web dashboard
+- typed tool contracts with Pydantic
+- plan validation before execution
+- Redis-backed worker queue
+- persisted task state and resumable execution
+- retries, timeouts and checkpoints
+- SSE progress stream
+- Playwright browser tool
+- human approval before external/irreversible actions
+- PostgreSQL and SQLite storage paths
+- Docker Compose
+- GitHub Actions
+- 90+ deterministic/integration checks
 
-- **Задача из любого входа** — веб-форма, REST (`POST /api/tasks`), вебхук
-  (`POST /api/webhooks/{source}`; принимает и JSON, и простой текст).
-- **План агента как данные** — список вызовов инструментов с аргументами и
-  объяснением «зачем» по каждому шагу. План проверяется до выполнения и
-  показывается в дашборде.
-- **Шесть инструментов** — `search_products` (API маркетплейса),
-  `rank_products` (детерминированный скоринг), `open_page` (Playwright, с
-  честным переходом на HTTP), `build_table` (markdown + CSV), `save_artifact`,
-  `send_report` (подтверждение человека).
-- **Передача данных между шагами** — ссылки `$search.items`,
-  `{{rank.top.0.price|money}}`: план остаётся данными, а не кодом.
-- **Живучесть выполнения** — повторы с ростом паузы, таймауты, контрольная точка
-  после каждого шага: упавший воркер продолжает задачу с того же места.
-- **Человек на точке невозврата** — отправка наружу останавливает задачу
-  (`waiting_approval`) и продолжается отдельным действием.
-- **Прогресс в реальном времени** — SSE-поток событий из базы, с продолжением
-  по `?after=<seq>`; дашборд переходит на опрос, если поток оборвался.
-- **Очередь как разделение процессов** — API отвечает за миллисекунды, воркеров
-  можно запускать несколько (`docker compose up -d --scale worker=3`).
-- **Работа без ключей** — детерминированный планировщик и встроенный каталог:
-  сквозной путь воспроизводим локально и проверяется в CI.
+## Architecture
 
-Пример задачи из README выполняется целиком одной командой:
+```
+Web / REST / Webhook
+        ↓
+      FastAPI
+        ↓
+ Queue (Redis)
+        ↓
+     Worker
+        ↓
+Planner → validation → executor
+        ↓
+tools / browser / calculations
+        ↓
+events + persisted state
+        ↓
+dashboard / report
+```
+
+## Engineering focus
+
+**Plan as data.** A plan can be inspected, validated, persisted and resumed.
+
+**Numbers in code.** Hard constraints and calculations are handled deterministically instead of delegated to the model.
+
+**Approval at the boundary.** The system can stop before a message or other external side effect is sent.
+
+**Deterministic fallback.** The portfolio demo works even without external services.
+
+## Stack
+
+Python 3.12 · FastAPI · Pydantic · PostgreSQL · SQLite · Redis · Playwright · React · TypeScript · Docker · GitHub Actions · pytest · ruff
+
+## Local run
 
 ```bash
 python -m app.demo
 ```
 
-## Архитектура
-
-```
-Веб-форма · Telegram · Вебхук · REST
-              │  POST /api/tasks  (202 Accepted)
-              ▼
-        FastAPI  ──►  Очередь (Redis / память)  ──►  Воркер
-              │                                        │
-    SSE-прогресс, дашборд                              ▼
-              │                              Планировщик агента
-              │                     ┌──────────────────┴──────────────────┐
-              │                     │ LLM tool calling   ·   детерминиро-  │
-              │                     │ + проверка плана       ванный план   │
-              │                     └──────────────────┬──────────────────┘
-              │                                        ▼
-              │                                  Исполнитель
-              │                    повторы · таймауты · контрольные точки ·
-              │                    подтверждение 🧑 · отмена
-              │                                        │
-              │        ┌───────────────┬───────────────┼───────────────┐
-              │        ▼               ▼               ▼               ▼
-              │   API маркет-    Браузер        Таблицы и       Доставка 🔒
-              │   плейса         (Playwright)    файлы           (Telegram/вебхук)
-              ▼
-      PostgreSQL / SQLite: задачи · шаги · события
-```
-
-Подробно: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-## Key engineering decisions
-
-1. **План — данные, а не код.** Отсюда всё остальное: план можно показать
-   человеку, проверить до запуска и продолжить с места сбоя.
-2. **Валидация до выполнения.** Инструмент существует, поля и типы аргументов
-   корректны, ссылки указывают на реальные шаги, циклов нет. Модель ошибается
-   предсказуемо — опечатка ловится до первого сетевого запроса, а не в середине
-   задачи.
-3. **Числа считает код, модель выбирает шаги.** Цена «до 5000 ₽» и «20 товаров»
-   читаются из текста регулярками; ранжирование — формула с объяснением
-   (`why` на каждую карточку), а не «модель так решила».
-4. **Детерминированный планировщик — рабочая ветка, а не заглушка.** Без ключа
-   LLM платформа выполняет те же шаги; CI проверяет сквозной путь без ключей,
-   сети и Postgres, а демо воспроизводимо до последней цифры.
-5. **События — единственный источник прогресса.** Воркер и API — разные
-   процессы, поэтому прогресс читается из базы (с `seq` и `?after=`), а не из
-   шины в памяти: перезапуск любого процесса и перезагрузка страницы ничего не
-   теряют.
-6. **Демо-данные помечаются везде.** `source: "demo"` доходит до результата и до
-   текста отчёта. Демонстрация, которая выглядит как интеграция, — это обман,
-   который вскрывается на первой встрече.
-
-Подробно, с отвергнутыми альтернативами — [docs/DECISIONS.md](docs/DECISIONS.md).
-
-## Tech Stack
-
-Python 3.12 · FastAPI · pydantic v2 (схемы инструментов и tool calling) ·
-PostgreSQL (asyncpg) · SQLite (aiosqlite) · Redis (очередь) · Playwright ·
-httpx · Docker / docker-compose · React 19 + TypeScript + Vite (дашборд) ·
-pytest + собственный раннер без зависимостей · ruff · GitHub Actions
-
-## Tests
-
-```bash
-python tests/run_all.py     # весь набор без pytest
-pytest -q                   # то же в CI
-```
-
-Тесты разложены по слоям: разбор цели, ссылки и порядок шагов, планировщик
-(валидный план модели, отказ при неизвестном инструменте, при плохих
-аргументах, при битой ссылке, недоступный провайдер), все шесть инструментов,
-исполнитель (повтор → успех со второй попытки, провал после всех повторов,
-необязательный шаг не роняет задачу, подтверждение и продолжение, отмена,
-таймаут, отсутствие повторного выполнения уже готовых шагов), хранилище
-(SQLite + перевод плейсхолдеров для PostgreSQL, монотонные события, сводка) и
-HTTP-слой через настоящий ASGI-стек (создание, статусы, подтверждение, вебхуки,
-409 на невозможный переход, SSE-поток).
-
-Тесты, которым нужна FastAPI, честно помечаются пропущенными, если её нет в
-окружении: набор должен запускаться и там, где установлены только рантайм-пакеты.
-
-Отдельно: `scripts/integration_check.py` проверяет настоящую связку
-**Redis + PostgreSQL + воркер** (отдельная job в CI с сервисами).
+Full API + worker + dashboard setup is documented in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Limitations
 
-- **Планировщик не итеративный.** План строится один раз и выполняется целиком;
-  перепланирования по ходу дела и ветвлений нет — для длинных сценариев с
-  обратной связью понадобится цикл с оценкой результата после шага.
-- **Guardrails на содержимое страниц не реализованы.** Текст из `open_page`
-  попадает в отчёт; защита от prompt injection внутри страниц — следующий шаг.
-- **Миграции схемы вручную.** Один SQL для SQLite и PostgreSQL означает, что
-  сложные миграции придётся писать самому, а не генерировать ORM.
-- **Дашборд собирается, но не покрыт тестами.** Проверяется типизацией
-  (`npm run typecheck`) и сборкой в CI, а не тестами поведения.
-- **Реальный канал маркетплейса требует внешнего API.** Без
-  `AAP_MARKETPLACE_BASE_URL` работает демо-каталог, и это указано в результате.
-
-## Local setup
-
-```bash
-python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python -m app.demo                               # сквозной прогон без ключей
-```
-
-Полный режим — API, воркер, дашборд:
-
-```bash
-uvicorn app.api.main:app --reload --port 8000    # API + статика дашборда
-python -m app.worker                             # обработка очереди
-cd frontend && npm install && npm run dev        # дашборд на :5173
-```
-
-Полный контур с PostgreSQL и Redis: `docker compose up --build`.
-Все переменные и их смысл — [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+This is an MVP, not a production autonomous agent. The planner is intentionally conservative, browser content is not yet fully protected against prompt injection, and the dashboard has less behavioural test coverage than the backend.
 
 ## AI-assisted development
 
-Проект написан в паре с AI-ассистентом, и для этой роли это преимущество, а не
-то, что стоит скрывать.
+AI was used for implementation drafts, routine modules and test ideas.
 
-- **AI — ускоритель:** черновики модулей и компонентов, рутинные адаптеры,
-  варианты тестовых сценариев, разбор незнакомых форматов ответов.
-- **На мне:** декомпозиция задачи; архитектура (план как данные, валидация до
-  выполнения, очереди и события, где проходит граница «внешний мир»); выбор
-  инструментов и их контрактов; интеграции с API, LLM и Playwright; отладка
-  расхождений (ссылки между шагами, циклы в плане, поведение при отказе
-  модели); проверка сгенерированного кода; тесты; финальное поведение продукта.
-
-Ни один сгенерированный фрагмент не считается рабочим, пока не прошёл тесты и
-прогон: набор из 90+ проверок, сквозной демо-прогон и интеграционная проверка
-Postgres+Redis в CI — это и есть способ убедиться, что платформа делает то, что
-о ней написано.
-
-## Docs
-
-[ARCHITECTURE.md](docs/ARCHITECTURE.md) — компоненты, путь задачи, состояния ·
-[AGENT.md](docs/AGENT.md) — контракт плана, инструменты, подключение своей
-модели · [DECISIONS.md](docs/DECISIONS.md) — решения и отвергнутые варианты ·
-[DEVELOPMENT.md](docs/DEVELOPMENT.md) — запуск, API, переменные, частые вопросы.
-
-## Лицензия
-
-MIT — см. [LICENSE](LICENSE).
+I owned the task decomposition, architecture, tool contracts, integration behaviour, debugging, validation and final product behaviour.
