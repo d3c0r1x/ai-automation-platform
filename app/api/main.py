@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -103,12 +103,12 @@ def create_app() -> FastAPI:
         return view.model_dump(mode="json")
 
     @app.post("/api/tasks/{task_id}/approve", tags=["tasks"])
-    async def approve(request: Request, task_id: str, payload: ApproveRequest = Body(default=ApproveRequest())) -> dict[str, Any]:
+    async def approve(request: Request, task_id: str, payload: ApproveRequest | None = None) -> dict[str, Any]:
         svc = service(request)
         view = await svc.view(task_id)
         if view is None:
             raise HTTPException(status_code=404, detail="задача не найдена")
-        step_id = payload.step_id
+        step_id = payload.step_id if payload else None
         if not step_id:
             waiting = [e.payload.get("step_id") for e in view.events if e.kind.value == "approval_required"]
             if not waiting:

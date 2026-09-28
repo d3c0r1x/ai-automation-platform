@@ -276,4 +276,4 @@ async def build_service(settings: Settings | None = None, with_queue: bool = Tru
     return service
 
 
-__all__ = ["TaskService", "build_service", "build_queue"]
+__all__ = ["TaskService", "build_service"]

@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import Field
-from urllib.parse import urlparse
 
 from app.core.tools.base import Tool, ToolContext, ToolError, ToolParams
 

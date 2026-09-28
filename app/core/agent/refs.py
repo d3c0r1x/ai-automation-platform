@@ -21,7 +21,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.core.formatting import format_money, stringify  # формат один на всю платформу; stringify реэкспортируется для подстановок
+# Формат один на всю платформу, а stringify реэкспортируется: подстановки
+# в тексте отчёта и таблицы должны выглядеть одинаково.
+from app.core.formatting import format_money, stringify
 
 FULL_REF = re.compile(r"^\$([A-Za-z0-9_-]+)(?:\.(.+))?$")
 INLINE_REF = re.compile(r"\{\{\s*([A-Za-z0-9_-]+)\.([A-Za-z0-9_.|]+)\s*\}\}")
