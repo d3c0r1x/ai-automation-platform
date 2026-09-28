@@ -172,6 +172,61 @@ def test_stats_counts_tasks_steps_and_events() -> None:
     asyncio.run(scenario())
 
 
+class _RecordingDriver:
+    """Драйвер-шпион: запоминает SQL и параметры, ничего никуда не пишет."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple]] = []
+
+    async def execute(self, sql: str, params: object = ()) -> None:
+        self.calls.append((sql, tuple(params)))  # type: ignore[arg-type]
+
+    async def fetchone(self, sql: str, params: object = ()) -> None:
+        return None
+
+    async def fetchall(self, sql: str, params: object = ()) -> list:
+        return []
+
+    async def close(self) -> None:
+        return None
+
+
+def test_boolean_columns_are_bound_as_bool_not_int() -> None:
+    """PostgreSQL не принимает 0/1 в BOOLEAN-колонку (нашла интеграционная проверка).
+
+    SQLite такую ошибку прощает, поэтому проверяем тип самих значений, а не
+    результат записи.
+    """
+
+    async def scenario() -> None:
+        driver = _RecordingDriver()
+        repo = Repository("postgresql://user:pass@localhost/aap")
+        repo._driver = driver  # type: ignore[assignment]
+
+        task = Task(id="task_types", goal="проверка типов", source="api", auto_approve=True)
+        await repo.create_task(task)
+        create_params = driver.calls[0][1]
+        assert create_params[5] is True, f"auto_approve должен быть bool, а не {type(create_params[5])}"
+
+        plain = Task(id="task_types_none", goal="без флага", source="api", auto_approve=None)
+        await repo.create_task(plain)
+        assert driver.calls[1][1][5] is None
+
+        await repo.save_step("task_types", StepResult(step_id="s1", tool="build_table", ok=False))
+        insert_sql, step_params = driver.calls[-1]  # DELETE + INSERT: интересует последний
+        assert "INSERT INTO task_steps" in insert_sql
+        assert step_params[3] is False, f"ok должен быть bool, а не {type(step_params[3])}"
+
+    asyncio.run(scenario())
+
+
+def test_postgres_sql_uses_numbered_placeholders_consistently() -> None:
+    for statement in ("SELECT * FROM tasks WHERE id = ? AND status = ?", "INSERT INTO a (x, y) VALUES (?, ?)"):
+        translated = PostgresDriver.translate(statement)
+        assert "?" not in translated
+        assert translated.count("$") == statement.count("?")
+
+
 def test_repository_requires_connection() -> None:
     repo = Repository("sqlite:///:memory:")
     from tests.expect import raises

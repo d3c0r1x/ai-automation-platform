@@ -18,7 +18,7 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.core.agent.executor import Executor, ExecutionOutcome
+from app.core.agent.executor import ExecutionOutcome, Executor
 from app.core.agent.llm import build_llm_client
 from app.core.agent.planner import Planner
 from app.core.config import Settings, load_settings
@@ -245,7 +245,7 @@ class TaskService:
                 continue
             try:
                 await self.process(task_id)
-            except Exception as exc:  # noqa: BLE001 — воркер не должен умирать от одной задачи
+            except Exception as exc:  # воркер не должен умирать от одной задачи
                 await self.repository.update_task(
                     task_id, status=TaskStatus.FAILED, error=f"{type(exc).__name__}: {exc}"
                 )

@@ -120,7 +120,7 @@ class ToolRegistry:
         tool = self.get(name)
         try:
             return tool.params.model_validate(args)
-        except Exception as exc:  # noqa: BLE001 — текст нужен агенту как есть
+        except Exception as exc:  # текст нужен агенту как есть
             raise ToolError(f"аргументы {name} не прошли валидацию: {exc}") from exc
 
     def check_args(self, name: str, args: dict[str, Any]) -> dict[str, Any]:

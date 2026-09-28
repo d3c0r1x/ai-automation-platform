@@ -97,7 +97,7 @@ class Executor:
                 raise
             except RefError:
                 raise
-            except Exception as exc:  # noqa: BLE001 — причину надо сохранить и показать
+            except Exception as exc:  # причину надо сохранить и показать
                 last_error = exc
                 if attempt <= self._retries:
                     await asyncio.sleep(self._backoff * (2 ** (attempt - 1)))
@@ -170,7 +170,7 @@ class Executor:
             started = time.perf_counter()
             try:
                 output, attempts = await self._call_step(step.tool, args)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 duration = int((time.perf_counter() - started) * 1000)
                 failure = StepResult(
                     step_id=step.id,

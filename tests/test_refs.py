@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-from tests.expect import raises
-
 from app.core.agent.refs import (
     RefError,
     alias_map,
-    normalize_references,
     get_path,
     get_path_with_transform,
+    normalize_references,
     ordered_steps,
     referenced_steps,
     resolve_args,
     stringify,
 )
 from app.core.models import PlanStep
+from tests.expect import raises
 
 OUTPUTS = {
     "search": {"items": [{"title": "A", "price": 1990}, {"title": "B", "price": 500}], "count": 2},

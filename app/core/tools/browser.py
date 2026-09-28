@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import urlparse
 
 from pydantic import Field
+from urllib.parse import urlparse
 
 from app.core.tools.base import Tool, ToolContext, ToolError, ToolParams
 
@@ -103,7 +103,7 @@ async def open_page(ctx: ToolContext, params: OpenPageParams) -> dict[str, Any]:
             }
         except ImportError:
             note = "Playwright не установлен — использован HTTP-канал без JS"
-        except Exception as exc:  # noqa: BLE001 — причину надо видеть, а не глотать
+        except Exception as exc:  # причину надо видеть, а не глотать
             note = f"Playwright не смог открыть страницу ({type(exc).__name__}) — использован HTTP-канал"
     else:
         note = "браузер отключён настройкой AAP_BROWSER_ENABLED=0"

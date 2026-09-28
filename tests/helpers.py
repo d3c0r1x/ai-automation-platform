@@ -22,8 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:  # чтобы `python tests/run_all.py` работал из любой папки
     sys.path.insert(0, str(ROOT))
 
-from app.core.config import Settings  # noqa: E402
-from app.core.tools.base import Tool, ToolContext, ToolParams  # noqa: E402
+from app.core.config import Settings
+from app.core.tools.base import Tool, ToolContext, ToolParams
 
 
 def require(module: str) -> Any:

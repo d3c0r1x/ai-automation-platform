@@ -70,7 +70,7 @@ def main(argv: list[str]) -> int:
             print(f"skip  {module_name} ({exc})")
             skipped += 1
             continue
-        except Exception:  # noqa: BLE001
+        except Exception:
             print(f"FAIL  {module_name} (не импортируется)")
             traceback.print_exc()
             failed += 1
@@ -87,7 +87,7 @@ def main(argv: list[str]) -> int:
                 failed += 1
                 failures.append((label, str(exc) or "утверждение не выполнено"))
                 print(f"FAIL  {label}: {exc}")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 failed += 1
                 failures.append((label, f"{type(exc).__name__}: {exc}"))
                 print(f"FAIL  {label}: {type(exc).__name__}: {exc}")

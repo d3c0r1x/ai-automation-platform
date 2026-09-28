@@ -125,7 +125,7 @@ def create_app() -> FastAPI:
             task = await service(request).cancel(task_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="задача не найдена") from None
-        except Exception as exc:  # noqa: BLE001 — InvalidTransition и прочее
+        except Exception as exc:  # InvalidTransition и прочее
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"task_id": task.id, "status": task.status.value}
 

@@ -273,7 +273,10 @@ class Repository:
                 task.source,
                 task.status.value,
                 task.notify,
-                None if task.auto_approve is None else int(task.auto_approve),
+                # Именно bool, а не 0/1: в PostgreSQL колонка BOOLEAN и asyncpg
+                # отказывается принимать int (SQLite такое стерпел бы — эту
+                # разницу поймала интеграционная проверка в CI).
+                task.auto_approve,
                 None,
                 None,
                 None,
@@ -354,7 +357,7 @@ class Repository:
                 task_id,
                 step.step_id,
                 step.tool,
-                int(step.ok),
+                step.ok,  # bool, по той же причине, что и auto_approve выше
                 step.attempts,
                 step.duration_ms,
                 json.dumps(step.output, ensure_ascii=False),
