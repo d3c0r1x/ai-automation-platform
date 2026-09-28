@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    name: Тесты, линтер и сквозной демо-прогон
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Установка зависимостей
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Линтер
+        run: ruff check app tests scripts
+
+      - name: Тесты без pytest (тот же набор, что и в ограниченном окружении)
+        run: python tests/run_all.py
+
+      - name: Тесты через pytest
+        run: pytest -q
+
+      # Демо — не украшение, а проверка: платформа обязана выполнить задачу
+      # целиком без ключей LLM, без внешних API, без Postgres и Redis.
+      - name: Сквозной прогон без ключей и сети
+        run: |
+          python -m app.demo --json > demo.json
+          python - <<'PY'
+          import json
+          report = json.load(open("demo.json", encoding="utf-8"))
+          assert report["status"] == "done", report["status"]
+          assert report["plan_source"] == "deterministic"
+          assert len(report["rows"]) == 5, len(report["rows"])
+          assert report["delivery"]["delivered"] is True
+          print("демо-прогон:", report["task_id"], "строк в результате:", len(report["rows"]))
+          PY
+
+      - name: Воркер обрабатывает задачу из очереди
+        run: |
+          python - <<'PY'
+          import asyncio
+          from app.core.models import TaskRequest
+          from app.services.tasks import build_service
+
+          async def main() -> None:
+              service = await build_service(with_queue=True)
+              try:
+                  task = await service.create(TaskRequest(goal="найди 4 товара категории рюкзак, выбери 2", auto_approve=True))
+                  processed = await service.work_loop(poll_timeout=0.1, max_tasks=1)
+                  view = await service.view(task.id)
+                  assert processed == 1 and view and view.task.status.value == "done"
+                  print("воркер обработал", task.id)
+              finally:
+                  await service.stop()
+
+          asyncio.run(main())
+          PY
+
+      - name: Артефакты прогона
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-report
+          path: |
+            demo.json
+            data/artifacts/**
+          if-no-files-found: ignore
+
+  frontend:
+    name: Сборка дашборда
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: npm run typecheck
+
+  integration:
+    name: PostgreSQL + Redis + воркер
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aap
+          POSTGRES_PASSWORD: aap
+          POSTGRES_DB: aap
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aap -d aap"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      AAP_DATABASE_URL: postgresql://aap:aap@localhost:5432/aap
+      AAP_QUEUE: redis
+      AAP_REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Проверка полного контура
+        run: python scripts/integration_check.py
